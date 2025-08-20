@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agenda Simple</title>
+
+  <!-- FullCalendar (global build) -->
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/locales-all.global.min.js"></script>
+
+  <!-- Bootstrap (para modales) -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Firebase (compat opcional) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+  <style>
+    :root{
+      --fondo:#fff7fb;
+      --panel:#ffffff;
+      --borde:#f8d6e6;
+      --texto:#5e5a63;
+      --principal:#ec8fb8;
+      --principal-osc:#e174a6;
+      --acento:#b892ff;
+      --suave:#ffe6f2;
+      --evento-canc:#e5e7eb;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; background:var(--fondo); color:var(--texto);
+      font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Inter', Arial, sans-serif;
+    }
+    header{
+      position:sticky; top:0; z-index:10;
+      background:linear-gradient(180deg, #fff, #fff7fb);
+      border-bottom:1px solid var(--borde);
+    }
+    .container-sm{ max-width:980px; }
+    .brand{ font-weight:700; color:#804b6b; }
+    .toolbar{ display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+    .toolbar button, .toolbar input, .toolbar select{
+      border-radius:10px; border:1px solid var(--borde); background:white; color:var(--texto);
+      padding:.45rem .75rem; font-size:.95rem;
+    }
+    .toolbar .btn-principal{ background:var(--principal); color:white; border-color:var(--principal-osc); }
+    .toolbar .btn-principal:hover{ background:var(--principal-osc); }
+    main{ padding:16px 0 28px; }
+    .panel{
+      background:var(--panel); border:1px solid var(--borde); border-radius:16px; padding:12px;
+      box-shadow:0 10px 24px rgba(236,143,184,.15);
+    }
+    .side-title{ font-weight:700; color:#7b5170 }
+    .empty{ color:#9b8f9a; font-style:italic }
+    /* Calendario */
+    #calendar{ --fc-border-color: var(--borde); }
+    .fc .fc-toolbar-title{ color:#7b5170; font-weight:700; font-size:1.05rem; }
+    .fc .fc-button{
+      background:var(--acento); border:0; border-radius:10px; padding:.35rem .6rem;
+    }
+    .fc .fc-button:hover{ filter:brightness(.95); }
+    .fc .fc-button-primary:not(:disabled):not(.fc-button-active):focus{ box-shadow:0 0 0 .2rem rgba(184,146,255,.25);}
+    .fc-theme-standard .fc-scrollgrid{ border:1px solid var(--borde); }
+    .fc .fc-daygrid-day.fc-day-today{ background: var(--suave); }
+    .fc-daygrid-dot-event, .fc-daygrid-event{
+      border-radius:8px; padding:0 6px; border:1px solid rgba(0,0,0,.05);
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;
+    }
+    .ev-cancelado{ background:var(--evento-canc) !important; border-color:#d1d5db !important; color:#6b7280 !important; text-decoration:line-through; }
+
+    /* Lista lateral */
+    .event-card{
+      border:1px solid var(--borde); border-left:6px solid var(--principal); border-radius:12px;
+      padding:10px 12px; margin-bottom:8px; background:#fff;
+    }
+    .event-time{ color:#7b5170; font-weight:700 }
+    .pill{ display:inline-block; padding:.15rem .5rem; border-radius:999px; font-size:.75rem; border:1px solid var(--borde); background:#fff; }
+
+    /* Modal */
+    .modal-content{ border-radius:14px; border:1px solid var(--borde); }
+    .form-control, .form-select{ border-radius:10px; }
+    .note{ font-size:.9rem; color:#8a7f88 }
+    .color-sample{ width:22px; height:22px; border-radius:6px; border:1px solid var(--borde); display:inline-block; vertical-align:middle; margin-right:6px; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="container-sm py-3">
+    <div class="d-flex justify-content-between align-items-center">
+      <div class="brand">Agenda Simple</div>
+      <div class="toolbar">
+        <input id="buscar" placeholder="Buscar (cliente, nota)" />
+        <select id="filtroEstado">
+          <option value="">Estado: Todos</option>
+          <option>Confirmado</option><option>Pendiente</option><option>Cancelado</option>
+        </select>
+        <select id="filtroTipo">
+          <option value="">Tipo: Todos</option>
+          <option>Reunión</option><option>Llamada</option><option>Visita</option><option>Otro</option>
+        </select>
+        <button id="btnNotif" title="Activar notificaciones">🔔 Notificaciones</button>
+        <button id="btnConfig" title="Configuración">⚙️ Configuración</button>
+        <button id="btnNuevo" class="btn-principal">+ Nuevo</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="container-sm">
+    <div class="row g-3">
+      <div class="col-lg-8">
+        <div class="panel">
+          <div id="calendar"></div>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <div class="panel">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="side-title">Compromisos del mes</div>
+            <span class="pill" id="contadorMes">0</span>
+          </div>
+          <div id="listaMes"></div>
+          <p class="note mt-2">Consejo: usa “+ Nuevo” o haz clic en un día para crear una cita.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Modal evento -->
+<div class="modal fade" id="modalEvento" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title">Evento</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="formEvento" class="row g-3">
+          <input type="hidden" id="evId">
+          <div class="col-6">
+            <label class="form-label">Fecha</label>
+            <input type="date" id="evFecha" class="form-control" required>
+          </div>
+          <div class="col-6">
+            <label class="form-label">Hora</label>
+            <input type="time" id="evHora" class="form-control" required>
+          </div>
+          <div class="col-6">
+            <label class="form-label">Duración (min)</label>
+            <input type="number" id="evDur" class="form-control" min="15" step="15" value="60">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Tipo</label>
+            <select id="evTipo" class="form-select">
+              <option>Reunión</option><option>Llamada</option><option>Visita</option><option>Otro</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label">Estado</label>
+            <select id="evEstado" class="form-select">
+              <option>Confirmado</option><option>Pendiente</option><option>Cancelado</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label">Cliente</label>
+            <input id="evCliente" class="form-control" placeholder="Nombre y apellidos">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Teléfono</label>
+            <input id="evTel" class="form-control" placeholder="+57 3xx xxx xxxx">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Ubicación</label>
+            <input id="evLugar" class="form-control" placeholder="Oficina / Online / Domicilio">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Nota</label>
+            <textarea id="evNota" class="form-control" rows="2"></textarea>
+          </div>
+          <div class="col-6">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="evNotif">
+              <label class="form-check-label" for="evNotif">Recordarme</label>
+            </div>
+          </div>
+          <div class="col-6">
+            <label class="form-label">Minutos antes</label>
+            <input type="number" id="evMin" class="form-control" min="1" max="1440" value="15">
+          </div>
+          <div class="col-12 d-flex justify-content-between pt-2">
+            <button type="button" id="btnEliminar" class="btn btn-outline-danger d-none">Eliminar</button>
+            <button type="submit" class="btn btn-principal">Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal configuración -->
+<div class="modal fade" id="modalConfig" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title">Configuración</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Vista inicial</label>
+          <select id="cfgVista" class="form-select">
+            <option value="dayGridMonth">Mes</option>
+            <option value="timeGridWeek">Semana</option>
+          </select>
+        </div>
+        <div class="mb-2"><strong>Colores por tipo de evento</strong></div>
+        <div class="row g-2">
+          <div class="col-6 d-flex align-items-center">
+            <span class="color-sample" id="muestraReunion"></span> Reunión
+          </div>
+          <div class="col-6"><input type="color" id="colorReunion" class="form-control form-control-color"></div>
+
+          <div class="col-6 d-flex align-items-center">
+            <span class="color-sample" id="muestraLlamada"></span> Llamada
+          </div>
+          <div class="col-6"><input type="color" id="colorLlamada" class="form-control form-control-color"></div>
+
+          <div class="col-6 d-flex align-items-center">
+            <span class="color-sample" id="muestraVisita"></span> Visita
+          </div>
+          <div class="col-6"><input type="color" id="colorVisita" class="form-control form-control-color"></div>
+
+          <div class="col-6 d-flex align-items-center">
+            <span class="color-sample" id="muestraOtro"></span> Otro
+          </div>
+          <div class="col-6"><input type="color" id="colorOtro" class="form-control form-control-color"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btnGuardarConfig" class="btn btn-principal">Guardar cambios</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Reemplaza compat por estos (modular v10) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"></script>
+<script>
+  const app = firebase.initializeApp({
+    apiKey: "AIzaSyDHxFvJCnQt5OPyl9Kt3bEYOm61ymxMPS4",
+    authDomain: "agendahada.firebaseapp.com",
+    projectId: "agendahada",
+    storageBucket: "agendahada.firebasestorage.app",
+    messagingSenderId: "561623156134",
+    appId: "1:561623156134:web:cd2728adb56ca93d24fb67"
+  });
+  const db = firebase.firestore(); // Si usas modular puro: const db = getFirestore(app)
+</script>
+
+
+
+
+<script>
+  // ===== Proveedores de datos =====
+  const Cloud = {
+    async init(){ this.db = firebase.firestore(); this.col = this.db.collection('eventos'); },
+    async list(){ const s = await this.col.get(); return s.docs.map(d=>({id:d.id, ...d.data()})); },
+    async upsert(e){ await this.col.doc(e.id).set(e); },
+    async remove(id){ await this.col.doc(id).delete(); }
+  };
+  const Local = {
+    KEY:'agenda_simple_events',
+    async init(){},
+    async list(){ try { return JSON.parse(localStorage.getItem(this.KEY)||'[]'); } catch { return []; } },
+    async upsert(e){ const all = await this.list(); const i = all.findIndex(x=>x.id===e.id); if(i>=0) all[i]=e; else all.push(e); localStorage.setItem(this.KEY, JSON.stringify(all)); },
+    async remove(id){ const all = await this.list(); localStorage.setItem(this.KEY, JSON.stringify(all.filter(x=>x.id!==id))); }
+  };
+  const Data = (function(){
+    let p = hasConfig ? Cloud : Local;
+    return {
+      async init(){ try{ await p.init(); } catch(e){ console.warn('Firestore no disponible, usando LocalStorage'); p = Local; await p.init(); } },
+      list(){ return p.list(); }, upsert(e){ return p.upsert(e); }, remove(id){ return p.remove(id); },
+      isCloud(){ return p===Cloud; }
+    };
+  })();
+
+  // ===== Configuración (vista + colores) =====
+  const CFG_KEY = 'agenda_simple_config';
+  const defaultColors = { 'Reunión':'#f8bbd0', 'Llamada':'#ffd6e7', 'Visita':'#c7d2fe', 'Otro':'#fde2ff' };
+  function loadConfig(){
+    try { return JSON.parse(localStorage.getItem(CFG_KEY)) || { view:'dayGridMonth', colors: defaultColors }; }
+    catch { return { view:'dayGridMonth', colors: defaultColors }; }
+  }
+  function saveConfig(cfg){ localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); }
+  function getTypeColor(tipo){ const cfg=loadConfig(); return (cfg.colors && cfg.colors[tipo]) || defaultColors[tipo] || '#f8bbd0'; }
+
+  // ===== Estado =====
+  let eventos = [];
+  let calendar;
+  let filtro = { q:'', estado:'', tipo:'' };
+  let timers = new Map();
+
+  // ===== Utilidades =====
+  const uid = () => (Date.now().toString(36)+Math.random().toString(36).slice(2,8));
+  function a12h(hhmm){ if(!hhmm) return ''; let [h,m]=hhmm.split(':'); h=+h; const am=h>=12?'PM':'AM'; h=h%12||12; return `${h}:${m} ${am}`; }
+  function parseDT(ev){
+    const [y,mo,d]=ev.fecha.split('-').map(n=>+n); const [hh,mm]=(ev.hora||'00:00').split(':').map(n=>+n);
+    const start = new Date(y,mo-1,d,hh,mm,0,0);
+    const end = new Date(start.getTime() + (parseInt(ev.duracion||60,10)*60000));
+    return {start,end};
+  }
+
+  // ===== CRUD =====
+  async function cargar(){ const list = await Data.list(); eventos = list.map(e => ({ duracion:60, estado:'Confirmado', notificar:false, minutos:15, ...e })); }
+  async function guardar(e){ await Data.upsert(e); programarNotificacion(e); }
+  async function eliminar(id){ await Data.remove(id); if (timers.has(id)) { clearTimeout(timers.get(id)); timers.delete(id); } }
+
+  // ===== Notificaciones =====
+  async function solicitarPermisoNotif(){
+    if (!('Notification' in window)) return alert('Este navegador no soporta notificaciones.');
+    if (Notification.permission === 'granted') return true;
+    const p = await Notification.requestPermission();
+    return p === 'granted';
+  }
+  function programarNotificacion(ev){
+    if (!('Notification' in window)) return;
+    if (!ev.notificar) return;
+    if (timers.has(ev.id)) { clearTimeout(timers.get(ev.id)); timers.delete(ev.id); }
+    const {start} = parseDT(ev);
+    const when = new Date(start.getTime() - (ev.minutos||15)*60000);
+    const delay = when.getTime() - Date.now();
+    if (delay <= 0) {
+      try { new Notification(`Recordatorio: ${ev.tipo}`, { body: `${a12h(ev.hora)} · ${ev.cliente||'Cliente'} · ${ev.lugar||''}` }); } catch(e){}
+      return;
+    }
+    const tid = setTimeout(()=>{
+      try { new Notification(`Recordatorio: ${ev.tipo}`, { body: `${a12h(ev.hora)} · ${ev.cliente||'Cliente'} · ${ev.lugar||''}` }); } catch(e){}
+      timers.delete(ev.id);
+    }, Math.min(delay, 2_147_000_000));
+    timers.set(ev.id, tid);
+  }
+  function reprogramarTodas(){
+    timers.forEach(t=>clearTimeout(t)); timers.clear();
+    if (Notification.permission!=='granted') return;
+    eventos.forEach(ev => {
+      const {start} = parseDT(ev);
+      if (start.getTime() > Date.now() && ev.notificar) programarNotificacion(ev);
+    });
+  }
+  setInterval(()=>{
+    if (!('Notification' in window) || Notification.permission!=='granted') return;
+    const now = Date.now();
+    eventos.forEach(ev => {
+      if (!ev.notificar) return;
+      const {start} = parseDT(ev);
+      const when = start.getTime() - (ev.minutos||15)*60000;
+      if (when <= now && when > now - 60000 && !timers.has(ev.id)) {
+        try { new Notification(`Recordatorio: ${ev.tipo}`, { body: `${a12h(ev.hora)} · ${ev.cliente||'Cliente'} · ${ev.lugar||''}` }); } catch(e){}
+      }
+    });
+  }, 60000);
+
+  // ===== Render lateral =====
+  function filtrarMes(){
+    const fechaBase = calendar ? calendar.getDate() : new Date();
+    const m = fechaBase.getMonth(), y = fechaBase.getFullYear();
+    return eventos.filter(e => {
+      const d = new Date(e.fecha);
+      const okMes = d.getMonth()===m && d.getFullYear()===y;
+      if (!okMes) return false;
+      const q = (filtro.q||'').toLowerCase();
+      const t = [e.cliente,e.tel,e.nota,e.tipo,e.estado,e.lugar].join(' ').toLowerCase();
+      const okQ = !q || t.includes(q);
+      const okE = !filtro.estado || e.estado===filtro.estado;
+      const okT = !filtro.tipo || e.tipo===filtro.tipo;
+      return okQ && okE && okT;
+    }).sort((a,b)=> (a.fecha+a.hora).localeCompare(b.fecha+b.hora));
+  }
+  function renderLista(){
+    const cont = document.getElementById('listaMes'); cont.innerHTML='';
+    const list = filtrarMes();
+    document.getElementById('contadorMes').textContent = list.length;
+    if (!list.length){ cont.innerHTML = '<div class="empty">Sin compromisos este mes</div>'; return; }
+    list.forEach(e => {
+      const div = document.createElement('div'); div.className='event-card'; div.style.borderLeftColor = getTypeColor(e.tipo);
+      div.innerHTML = `
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="event-time">${a12h(e.hora)} — ${e.tipo}</div>
+            <div class="text-muted small">${e.fecha} · ${e.lugar||''}</div>
+            ${e.cliente ? `<div><strong>${e.cliente}</strong> ${e.tel? '('+e.tel+')':''}</div>` : ''}
+            ${e.nota ? `<div class="small text-muted">${e.nota}</div>` : ''}
+          </div>
+          <div class="ms-2">
+            <button class="btn btn-sm btn-outline-secondary" onclick="editar('${e.id}')">Editar</button>
+            <button class="btn btn-sm btn-outline-danger mt-1" onclick="borrar('${e.id}')">Eliminar</button>
+          </div>
+        </div>`;
+      cont.appendChild(div);
+    });
+  }
+
+  // ===== Calendario =====
+  function aEventoFC(e){
+    const {start,end} = parseDT(e);
+    const bg = (e.estado==='Cancelado') ? null : getTypeColor(e.tipo);
+    return {
+      id: e.id,
+      title: `${e.tipo} · ${a12h(e.hora)} · ${e.cliente||''}`.trim(),
+      start, end,
+      display: 'block',
+      classNames: [e.estado==='Cancelado' ? 'ev-cancelado' : ''],
+      backgroundColor: bg || undefined,
+      borderColor: bg || undefined,
+    };
+  }
+
+  async function refrescar(){
+    await cargar();
+    if (calendar){
+      calendar.removeAllEvents();
+      calendar.addEventSource(eventos.map(aEventoFC));
+    }
+    renderLista();
+    reprogramarTodas();
+  }
+
+  // ===== UI helpers =====
+  function abrirNuevo(fechaISO){
+    const hoy = fechaISO || new Date().toISOString().slice(0,10);
+    document.getElementById('evId').value='';
+    document.getElementById('evFecha').value=hoy;
+    document.getElementById('evHora').value='09:00';
+    document.getElementById('evDur').value=60;
+    document.getElementById('evTipo').value='Reunión';
+    document.getElementById('evEstado').value='Confirmado';
+    document.getElementById('evCliente').value='';
+    document.getElementById('evTel').value='';
+    document.getElementById('evLugar').value='';
+    document.getElementById('evNota').value='';
+    document.getElementById('evNotif').checked=false;
+    document.getElementById('evMin').value=15;
+    document.getElementById('btnEliminar').classList.add('d-none');
+    new bootstrap.Modal('#modalEvento').show();
+  }
+  function editar(id){
+    const e = eventos.find(x=>x.id===id); if(!e) return;
+    document.getElementById('evId').value=e.id;
+    document.getElementById('evFecha').value=e.fecha;
+    document.getElementById('evHora').value=e.hora;
+    document.getElementById('evDur').value=e.duracion||60;
+    document.getElementById('evTipo').value=e.tipo||'Reunión';
+    document.getElementById('evEstado').value=e.estado||'Confirmado';
+    document.getElementById('evCliente').value=e.cliente||'';
+    document.getElementById('evTel').value=e.tel||'';
+    document.getElementById('evLugar').value=e.lugar||'';
+    document.getElementById('evNota').value=e.nota||'';
+    document.getElementById('evNotif').checked=!!e.notificar;
+    document.getElementById('evMin').value=e.minutos??15;
+    document.getElementById('btnEliminar').classList.remove('d-none');
+    new bootstrap.Modal('#modalEvento').show();
+  }
+  async function borrar(id){
+    if (!confirm('¿Eliminar este evento?')) return;
+    await eliminar(id); await refrescar();
+  }
+
+  // ===== Inicio =====
+  document.addEventListener('DOMContentLoaded', async ()=>{
+    await Data.init();
+    await cargar();
+
+    // Config inicial
+    const cfg = loadConfig();
+    // Calendario
+    calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
+      locale: 'es',
+      initialView: cfg.view || 'dayGridMonth',
+      height: 'auto',
+      firstDay: 1,
+      dayMaxEvents: true,
+      eventTimeFormat: { hour: 'numeric', minute:'2-digit', meridiem: true },
+      headerToolbar: { left: 'prev,next today', center: 'title', right: (cfg.view==='timeGridWeek'?'timeGridWeek,dayGridMonth':'') },
+      dateClick: info => abrirNuevo(info.dateStr),
+      events: eventos.map(aEventoFC),
+    });
+    calendar.render();
+    renderLista();
+
+    if ('Notification' in window && Notification.permission==='granted') reprogramarTodas();
+
+    // Botones barra
+    document.getElementById('btnNuevo').addEventListener('click', ()=>abrirNuevo());
+    document.getElementById('btnNotif').addEventListener('click', async ()=>{
+      const ok = await solicitarPermisoNotif();
+      if (ok) { alert('¡Notificaciones activadas!'); reprogramarTodas(); }
+      else { alert('Para recibir recordatorios debes permitir las notificaciones del sitio.'); }
+    });
+    document.getElementById('btnConfig').addEventListener('click', ()=>{
+      const cfg = loadConfig();
+      document.getElementById('cfgVista').value = cfg.view || 'dayGridMonth';
+      document.getElementById('colorReunion').value = cfg.colors['Reunión'] || defaultColors['Reunión'];
+      document.getElementById('colorLlamada').value = cfg.colors['Llamada'] || defaultColors['Llamada'];
+      document.getElementById('colorVisita').value  = cfg.colors['Visita']  || defaultColors['Visita'];
+      document.getElementById('colorOtro').value    = cfg.colors['Otro']    || defaultColors['Otro'];
+      // muestras
+      document.getElementById('muestraReunion').style.background = document.getElementById('colorReunion').value;
+      document.getElementById('muestraLlamada').style.background = document.getElementById('colorLlamada').value;
+      document.getElementById('muestraVisita').style.background  = document.getElementById('colorVisita').value;
+      document.getElementById('muestraOtro').style.background    = document.getElementById('colorOtro').value;
+      new bootstrap.Modal('#modalConfig').show();
+    });
+    ['colorReunion','colorLlamada','colorVisita','colorOtro'].forEach(id=>{
+      const inp = document.getElementById(id);
+      inp?.addEventListener('input', ()=>{
+        const map = { colorReunion:'muestraReunion', colorLlamada:'muestraLlamada', colorVisita:'muestraVisita', colorOtro:'muestraOtro' };
+        document.getElementById(map[id]).style.background = inp.value;
+      });
+    });
+    document.getElementById('btnGuardarConfig').addEventListener('click', async ()=>{
+      const cfg = loadConfig();
+      cfg.view = document.getElementById('cfgVista').value || 'dayGridMonth';
+      cfg.colors['Reunión'] = document.getElementById('colorReunion').value;
+      cfg.colors['Llamada'] = document.getElementById('colorLlamada').value;
+      cfg.colors['Visita']  = document.getElementById('colorVisita').value;
+      cfg.colors['Otro']    = document.getElementById('colorOtro').value;
+      saveConfig(cfg);
+      bootstrap.Modal.getInstance(document.getElementById('modalConfig')).hide();
+      await refrescar();
+      // cambiar vista si hace falta
+      if (calendar.view.type !== cfg.view) calendar.changeView(cfg.view);
+    });
+
+    // Filtros
+    document.getElementById('buscar').addEventListener('input', e => { filtro.q = e.target.value; renderLista(); });
+    document.getElementById('filtroEstado').addEventListener('change', e => { filtro.estado = e.target.value; renderLista(); });
+    document.getElementById('filtroTipo').addEventListener('change', e => { filtro.tipo = e.target.value; renderLista(); });
+
+    // Formulario
+    document.getElementById('formEvento').addEventListener('submit', async (ev)=>{
+      ev.preventDefault();
+      const id = document.getElementById('evId').value || uid();
+      const obj = {
+        id,
+        fecha: document.getElementById('evFecha').value,
+        hora: document.getElementById('evHora').value,
+        duracion: parseInt(document.getElementById('evDur').value||'60',10),
+        tipo: document.getElementById('evTipo').value,
+        estado: document.getElementById('evEstado').value,
+        cliente: document.getElementById('evCliente').value,
+        tel: document.getElementById('evTel').value,
+        lugar: document.getElementById('evLugar').value,
+        nota: document.getElementById('evNota').value,
+        notificar: document.getElementById('evNotif').checked,
+        minutos: parseInt(document.getElementById('evMin').value||'15',10)
+      };
+      await guardar(obj); await refrescar();
+      bootstrap.Modal.getInstance(document.getElementById('modalEvento')).hide();
+    });
+    document.getElementById('btnEliminar').addEventListener('click', async ()=>{
+      const id = document.getElementById('evId').value;
+      if (id) { await borrar(id); bootstrap.Modal.getInstance(document.getElementById('modalEvento')).hide(); }
+    });
+  });
+
+function guardarEvento(dia, texto) {
+  db.collection("eventos").add({
+    dia: dia,
+    texto: texto,
+    fechaGuardado: new Date()
+  })
+  .then(() => {
+    console.log("Evento guardado en Firebase");
+  })
+  .catch((error) => {
+    console.error("Error al guardar evento: ", error);
+  });
+}
+
+function cargarEventos() {
+  db.collection("eventos").get().then((querySnapshot) => {
+    querySnapshot.forEach((doc) => {
+      const evento = doc.data();
+      mostrarEventoEnCalendario(evento.dia, evento.texto);
+    });
+  });
+}
+
+
+</script>
+</body>
+</html>
